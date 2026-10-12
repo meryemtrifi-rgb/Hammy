@@ -1,0 +1,19 @@
+{
+  "name": "hammey-bijoux",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Boutique Hammey Bijoux avec checkout Stripe et PayPal Sandbox",
+  "main": "server.js",
+  "type": "commonjs",
+  "packageManager": "npm@10.9.2",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js",
+    "check": "node --check server.js"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "mysql2": "^3.14.3",
+    "stripe": "^18.5.0"
+  }
+}
