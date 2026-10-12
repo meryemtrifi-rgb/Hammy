@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const mysql = require('mysql2/promise');
 const Stripe = require('stripe');
+const jwt = require('jsonwebtoken');
 const { PRODUCTS, publicProduct } = require('./products');
 
 const app = express();
@@ -12,6 +13,57 @@ const ROOT = __dirname;
 const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
 const pool = process.env.DATABASE_URL ? mysql.createPool({ uri: process.env.DATABASE_URL, connectionLimit: 5, waitForConnections: true }) : null;
 let dbReady = false;
+
+
+function parseCookies(header = '') {
+  return Object.fromEntries(header.split(';').map(part => part.trim()).filter(Boolean).map(part => {
+    const index = part.indexOf('=');
+    return index < 0 ? [part, ''] : [part.slice(0, index), decodeURIComponent(part.slice(index + 1))];
+  }));
+}
+function setSessionCookie(res, token, maxAge = 60 * 60 * 24 * 30) {
+  res.setHeader('Set-Cookie', `webdev_app_session=${encodeURIComponent(token)}; Path=/; HttpOnly; Secure; SameSite=None; Max-Age=${maxAge}`);
+}
+function setStateCookie(res, nonce) {
+  res.setHeader('Set-Cookie', `hb_oauth_state=${encodeURIComponent(nonce)}; Path=/; HttpOnly; Secure; SameSite=None; Max-Age=600`);
+}
+function clearStateCookie(res) {
+  res.append('Set-Cookie', 'hb_oauth_state=; Path=/; HttpOnly; Secure; SameSite=None; Max-Age=0');
+}
+function clearSessionCookie(res) {
+  res.setHeader('Set-Cookie', 'webdev_app_session=; Path=/; HttpOnly; Secure; SameSite=None; Max-Age=0');
+}
+function publicUser(row) {
+  return { id: row.id, email: row.email, name: row.name, marketingConsent: Boolean(row.marketing_consent), createdAt: row.created_at };
+}
+async function upsertUser(identity) {
+  if (!dbReady) await ensureDatabase();
+  const openId = String(identity.openId || '').trim();
+  const email = String(identity.email || '').trim();
+  const name = String(identity.name || email.split('@')[0] || 'Client Hammey').trim();
+  if (!openId || !email) throw new Error('Identité OAuth incomplète');
+  await pool.query(`INSERT INTO hb_users(open_id,email,name) VALUES (?,?,?) ON DUPLICATE KEY UPDATE email=VALUES(email), name=VALUES(name)`, [openId, email, name]);
+  const [rows] = await pool.query('SELECT * FROM hb_users WHERE open_id = ?', [openId]);
+  return rows[0];
+}
+async function sessionUser(req) {
+  const cookies = parseCookies(req.headers.cookie || '');
+  const bearer = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+  const token = cookies.webdev_app_session || bearer;
+  if (!token || !process.env.MANUS_JWT_SECRET || !process.env.MANUS_PROJECT_ID) return null;
+  try {
+    const payload = jwt.verify(token, process.env.MANUS_JWT_SECRET, { algorithms: ['HS256'] });
+    if (payload.appId && payload.appId !== process.env.MANUS_PROJECT_ID) return null;
+    const openId = payload.openId || payload.open_id || payload.sub;
+    if (!openId || !pool) return null;
+    if (!dbReady) await ensureDatabase();
+    const [rows] = await pool.query('SELECT * FROM hb_users WHERE open_id = ?', [openId]);
+    return rows[0] || null;
+  } catch { return null; }
+}
+function oauthConfigReady() {
+  return Boolean(process.env.MANUS_PROJECT_ID && process.env.MANUS_OAUTH_PORTAL_URL && process.env.MANUS_OAUTH_API_URL && process.env.MANUS_JWT_SECRET);
+}
 
 function money(cents) { return (cents / 100).toFixed(2); }
 function orderNumber() { return `HB-${Date.now().toString(36).toUpperCase()}-${crypto.randomBytes(2).toString('hex').toUpperCase()}`; }
@@ -170,6 +222,67 @@ async function paypalRequest(endpoint, options = {}) {
 }
 
 app.use(express.json({ limit: '64kb' }));
+
+
+app.get('/api/auth/login', (req, res) => {
+  if (!oauthConfigReady()) return res.status(503).send('Connexion indisponible');
+  const nonce = crypto.randomBytes(24).toString('hex');
+  const redirectUri = `${publicOrigin(req)}/api/auth/callback`;
+  const state = Buffer.from(JSON.stringify({ redirectUri, nonce })).toString('base64url');
+  setStateCookie(res, nonce);
+  const url = new URL('/app-auth', process.env.MANUS_OAUTH_PORTAL_URL);
+  url.searchParams.set('appId', process.env.MANUS_PROJECT_ID);
+  url.searchParams.set('redirectUri', redirectUri);
+  url.searchParams.set('state', state);
+  url.searchParams.set('responseType', 'code');
+  res.redirect(url.toString());
+});
+app.get('/api/auth/callback', async (req, res) => {
+  try {
+    if (!oauthConfigReady()) return res.redirect('/?auth=error');
+    const state = JSON.parse(Buffer.from(String(req.query.state || ''), 'base64url').toString('utf8'));
+    const cookies = parseCookies(req.headers.cookie || '');
+    if (!state.nonce || !cookies.hb_oauth_state || state.nonce !== cookies.hb_oauth_state || state.redirectUri !== `${publicOrigin(req)}/api/auth/callback`) return res.status(400).send('État OAuth invalide');
+    const code = String(req.query.code || '');
+    if (!code) return res.redirect('/?auth=error');
+    const tokenResponse = await fetch(`${process.env.MANUS_OAUTH_API_URL}/webdev.v1.WebDevAuthPublicService/ExchangeToken`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clientId: process.env.MANUS_PROJECT_ID, grantType: 'authorization_code', code, redirectUri: state.redirectUri }) });
+    if (!tokenResponse.ok) throw new Error('Échange OAuth refusé');
+    const tokenData = await tokenResponse.json();
+    const userResponse = await fetch(`${process.env.MANUS_OAUTH_API_URL}/webdev.v1.WebDevAuthPublicService/GetUserInfo`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenData.accessToken}` }, body: JSON.stringify({ accessToken: tokenData.accessToken }) });
+    if (!userResponse.ok) throw new Error('Identité OAuth indisponible');
+    const identity = await userResponse.json();
+    const user = await upsertUser(identity);
+    const session = jwt.sign({ appId: process.env.MANUS_PROJECT_ID, openId: identity.openId, email: user.email, name: user.name }, process.env.MANUS_JWT_SECRET, { algorithm: 'HS256', expiresIn: '30d' });
+    setSessionCookie(res, session);
+    clearStateCookie(res);
+    res.redirect('/?auth=success');
+  } catch (error) { console.error('[oauth]', error.message); res.redirect('/?auth=error'); }
+});
+app.get('/api/auth/logout', (req, res) => { clearSessionCookie(res); res.redirect('/'); });
+app.get('/api/auth/me', async (req, res) => { try { const user = await sessionUser(req); res.json(user ? { authenticated: true, user: publicUser(user) } : { authenticated: false }); } catch { res.json({ authenticated: false }); } });
+app.post('/api/newsletter/subscribe', async (req, res) => {
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    const consent = req.body.consent === true;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return bad(res, 'Adresse e-mail invalide');
+    if (!consent) return bad(res, 'Le consentement est nécessaire pour recevoir la newsletter');
+    if (!dbReady) await ensureDatabase();
+    const user = await sessionUser(req);
+    await pool.query(`INSERT INTO hb_newsletter_subscribers(email,user_id,status,consent_at,source) VALUES (?,?, 'subscribed', CURRENT_TIMESTAMP, ?) ON DUPLICATE KEY UPDATE user_id=VALUES(user_id), status='subscribed', consent_at=CURRENT_TIMESTAMP, source=VALUES(source)`, [email, user?.id || null, String(req.body.source || 'footer').slice(0, 80)]);
+    if (user) await pool.query('UPDATE hb_users SET marketing_consent = TRUE, marketing_consent_at = CURRENT_TIMESTAMP WHERE id = ?', [user.id]);
+    res.status(201).json({ subscribed: true, message: 'Inscription confirmée. Vous recevrez nos nouveautés et nos offres.' });
+  } catch (error) { res.status(503).json({ error: 'Inscription newsletter indisponible' }); }
+});
+app.post('/api/account/marketing-consent', async (req, res) => {
+  try {
+    const user = await sessionUser(req);
+    if (!user) return bad(res, 'Connexion requise', 401);
+    if (req.body.consent !== true) return bad(res, 'Le consentement est nécessaire');
+    await pool.query('UPDATE hb_users SET marketing_consent = TRUE, marketing_consent_at = CURRENT_TIMESTAMP WHERE id = ?', [user.id]);
+    await pool.query(`INSERT INTO hb_newsletter_subscribers(email,user_id,status,consent_at,source) VALUES (?,?, 'subscribed', CURRENT_TIMESTAMP, 'account') ON DUPLICATE KEY UPDATE user_id=VALUES(user_id), status='subscribed', consent_at=CURRENT_TIMESTAMP, source='account'`, [user.email, user.id]);
+    res.json({ subscribed: true, message: 'Votre inscription est confirmée. Votre offre de bienvenue pourra vous être communiquée par e-mail.' });
+  } catch { res.status(503).json({ error: 'Inscription indisponible' }); }
+});
 
 app.get('/api/health', async (req, res) => res.json({ ok: true, database: dbReady, stripe: Boolean(stripe), paypal: Boolean(process.env.PAYPAL_CLIENT_ID && process.env.PAYPAL_CLIENT_SECRET), environment: 'test' }));
 app.get('/api/produits', async (req, res) => { try { res.json((await productRows()).map(publicProduct)); } catch (e) { res.status(503).json({ error: 'Base de données indisponible' }); } });

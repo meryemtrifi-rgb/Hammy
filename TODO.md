@@ -13,3 +13,9 @@
 - La page de confirmation affiche le numéro de commande, le montant et l’état réel de la commande.
 - Aucun numéro de carte, cryptogramme, date d’expiration, clé secrète ou payload brut de webhook n’est enregistré.
 - Le Dockerfile de production installe les dépendances, démarre le serveur sur `PORT` et sert `/api/health`.
+
+- Le site propose « Créer un compte / Se connecter » via Manus OAuth et ne stocke aucun mot de passe Hammey.
+- Le serveur valide la session `webdev_app_session` avec le JWT Manus, protège le flux OAuth par state/nonce et utilise un cookie HTTPS compatible Preview.
+- Un compte créé affiche une proposition d’offre de bienvenue sans inventer de montant ni de code promotionnel.
+- La newsletter possède un formulaire public et une inscription depuis l’espace client avec consentement explicite non précoché.
+- Les inscriptions newsletter et les consentements sont persistés avec e-mail, statut, date et source ; une inscription sans consentement est refusée.

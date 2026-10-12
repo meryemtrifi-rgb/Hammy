@@ -49,3 +49,12 @@ Construire une première version fonctionnelle en environnement de test, sans pa
 ## Limites de cette étape
 
 L’administration, les e-mails automatiques, les photos réelles, les comptes clients et le passage en clés de production restent des étapes séparées. Aucun champ légal entre crochets ne sera inventé.
+
+
+## Extension validée — comptes et newsletter
+
+- Les comptes clients utiliseront Manus OAuth, sans mot de passe Hammey stocké.
+- Une session applicative `webdev_app_session` sera validée côté serveur avec le secret JWT Manus et le cookie sera compatible avec la Preview HTTPS.
+- Après création du compte, l’espace client affichera une proposition d’offre de bienvenue, sans inventer de montant ni de code promotionnel.
+- La newsletter sera accessible dans le pied de page et dans l’espace client, avec une case de consentement non cochée par défaut.
+- Les consentements marketing seront séparés du traitement de la commande et persistés avec leur date et leur source.
