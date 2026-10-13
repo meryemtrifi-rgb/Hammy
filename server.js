@@ -142,12 +142,20 @@ async function priceCart(items, shippingMethod) {
   return { lineItems, subtotalCents, shippingCents, totalCents: subtotalCents + shippingCents };
 }
 
-async function createOrder(body) {
+function promotionFor(code, subtotalCents) {
+  const normalized = String(code || '').trim().toUpperCase();
+  if (normalized === 'HAMMEYTEST10' && subtotalCents >= 3000) return { code: normalized, discountCents: Math.round(subtotalCents * 0.10), label: '10 % offre test' };
+  return { code: '', discountCents: 0, label: '' };
+}
+async function createOrder(body, user = null) {
   if (!dbReady) await ensureDatabase();
   const customer = validateCustomer(body);
   const shippingMethod = body.shippingMethod === 'exp' ? 'exp' : 'std';
   const paymentMethod = body.paymentMethod === 'paypal' ? 'paypal' : 'stripe';
   const priced = await priceCart(body.items, shippingMethod);
+  const promotion = promotionFor(body.promoCode, priced.subtotalCents);
+  priced.discountCents = promotion.discountCents;
+  priced.totalCents = Math.max(0, priced.totalCents - promotion.discountCents);
   const number = orderNumber();
   const conn = await pool.getConnection();
   try {
@@ -160,8 +168,10 @@ async function createOrder(body) {
     for (const line of priced.lineItems) {
       await conn.query('INSERT INTO hb_order_items (order_id,product_id,product_name,option_value,unit_price_cents,quantity) VALUES (?,?,?,?,?,?)', [result.insertId, line.productId, line.productName, line.option, line.unitPriceCents, line.quantity]);
     }
+    if (user?.id) await conn.query('INSERT INTO hb_order_users(order_id,user_id) VALUES (?,?)', [result.insertId, user.id]);
+    if (promotion.code) await conn.query('INSERT INTO hb_order_promotions(order_id,code,discount_cents) VALUES (?,?,?)', [result.insertId, promotion.code, promotion.discountCents]);
     await conn.commit();
-    return { id: result.insertId, orderNumber: number, customer, shippingMethod, paymentMethod, ...priced };
+    return { id: result.insertId, orderNumber: number, customer, shippingMethod, paymentMethod, promotion, ...priced };
   } catch (error) {
     await conn.rollback();
     throw error;
@@ -177,7 +187,8 @@ async function loadOrder(number) {
 async function safeOrder(number) {
   const order = await loadOrder(number);
   if (!order) return null;
-  return { orderNumber: order.order_number, email: order.email, subtotalCents: order.subtotal_cents, shippingCents: order.shipping_cents, totalCents: order.total_cents, paymentMethod: order.payment_method, paymentStatus: order.payment_status, fulfillmentStatus: order.fulfillment_status, items: order.items.map(i => ({ name: i.product_name, option: i.option_value, quantity: i.quantity, unitPriceCents: i.unit_price_cents })) };
+  const [promos] = await pool.query('SELECT code, discount_cents FROM hb_order_promotions WHERE order_id = ?', [order.id]);
+  return { orderNumber: order.order_number, email: order.email, subtotalCents: order.subtotal_cents, shippingCents: order.shipping_cents, discountCents: promos[0]?.discount_cents || 0, promoCode: promos[0]?.code || '', totalCents: order.total_cents, paymentMethod: order.payment_method, paymentStatus: order.payment_status, fulfillmentStatus: order.fulfillment_status, items: order.items.map(i => ({ name: i.product_name, option: i.option_value, quantity: i.quantity, unitPriceCents: i.unit_price_cents })) };
 }
 async function markPaid(number, providerId, eventId, provider, eventType) {
   const conn = await pool.getConnection();
@@ -260,6 +271,23 @@ app.get('/api/auth/callback', async (req, res) => {
 });
 app.get('/api/auth/logout', (req, res) => { clearSessionCookie(res); res.redirect('/'); });
 app.get('/api/auth/me', async (req, res) => { try { const user = await sessionUser(req); res.json(user ? { authenticated: true, user: publicUser(user) } : { authenticated: false }); } catch { res.json({ authenticated: false }); } });
+app.get('/api/account/orders', async (req, res) => {
+  try {
+    const user = await sessionUser(req);
+    if (!user) return bad(res, 'Connexion requise', 401);
+    const [rows] = await pool.query(`SELECT o.order_number, o.total_cents, o.payment_status, o.fulfillment_status, o.created_at FROM hb_orders o JOIN hb_order_users ou ON ou.order_id=o.id WHERE ou.user_id=? ORDER BY o.created_at DESC`, [user.id]);
+    res.json(rows.map(row => ({ orderNumber: row.order_number, totalCents: row.total_cents, paymentStatus: row.payment_status, fulfillmentStatus: row.fulfillment_status, createdAt: row.created_at })));
+  } catch { res.status(503).json({ error: 'Historique indisponible' }); }
+});
+app.post('/api/newsletter/unsubscribe', async (req, res) => {
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return bad(res, 'Adresse e-mail invalide');
+    if (!dbReady) await ensureDatabase();
+    await pool.query(`INSERT INTO hb_newsletter_subscribers(email,status,source) VALUES (?, 'unsubscribed', 'unsubscribe') ON DUPLICATE KEY UPDATE status='unsubscribed', updated_at=CURRENT_TIMESTAMP`, [email]);
+    res.json({ unsubscribed: true, message: 'Désinscription confirmée.' });
+  } catch { res.status(503).json({ error: 'Désinscription indisponible' }); }
+});
 app.post('/api/newsletter/subscribe', async (req, res) => {
   try {
     const email = String(req.body.email || '').trim().toLowerCase();
@@ -289,7 +317,7 @@ app.get('/api/produits', async (req, res) => { try { res.json((await productRows
 app.get('/api/produits/:id', async (req, res) => { try { const p = await getProduct(req.params.id); if (!p) return bad(res, 'Produit introuvable', 404); res.json(publicProduct(p)); } catch { res.status(503).json({ error: 'Base de données indisponible' }); } });
 app.get('/api/commandes/:number', async (req, res) => { try { const order = await safeOrder(req.params.number); if (!order) return bad(res, 'Commande introuvable', 404); res.json(order); } catch { res.status(503).json({ error: 'Base de données indisponible' }); } });
 
-app.post('/api/commandes', async (req, res) => { try { const order = await createOrder(req.body); res.status(201).json({ orderNumber: order.orderNumber, totalCents: order.totalCents, paymentMethod: order.paymentMethod, paymentStatus: 'pending' }); } catch (e) { res.status(400).json({ error: e.message || 'Commande invalide' }); } });
+app.post('/api/commandes', async (req, res) => { try { const user = await sessionUser(req); const order = await createOrder(req.body, user); res.status(201).json({ orderNumber: order.orderNumber, totalCents: order.totalCents, discountCents: order.discountCents, promoCode: order.promotion.code, paymentMethod: order.paymentMethod, paymentStatus: 'pending' }); } catch (e) { res.status(400).json({ error: e.message || 'Commande invalide' }); } });
 app.post('/api/paiement', async (req, res) => {
   try {
     const number = String(req.body.orderNumber || '').trim();
@@ -299,7 +327,15 @@ app.post('/api/paiement', async (req, res) => {
     if (order.payment_method === 'stripe') {
       if (!stripe) return bad(res, 'Stripe test n’est pas configuré', 503);
       const items = await pool.query('SELECT * FROM hb_order_items WHERE order_id = ?', [order.id]);
-      const lineItems = items[0].map(item => ({ price_data: { currency: 'eur', product_data: { name: `${item.product_name} — ${item.option_value}` }, unit_amount: item.unit_price_cents }, quantity: item.quantity }));
+      const [promoRows] = await pool.query('SELECT discount_cents FROM hb_order_promotions WHERE order_id = ?', [order.id]);
+      let remainingDiscount = Number(promoRows[0]?.discount_cents || 0);
+      const lineItems = items[0].map(item => {
+        const lineTotal = item.unit_price_cents * item.quantity;
+        const deduction = Math.min(remainingDiscount, lineTotal);
+        remainingDiscount -= deduction;
+        const adjustedUnit = Math.max(0, Math.floor((lineTotal - deduction) / item.quantity));
+        return { price_data: { currency: 'eur', product_data: { name: `${item.product_name} — ${item.option_value}` }, unit_amount: adjustedUnit }, quantity: item.quantity };
+      });
       if (order.shipping_cents) lineItems.push({ price_data: { currency: 'eur', product_data: { name: order.shipping_method === 'exp' ? 'Livraison express' : 'Livraison standard' }, unit_amount: order.shipping_cents }, quantity: 1 });
       const session = await stripe.checkout.sessions.create({ mode: 'payment', customer_email: order.email, client_reference_id: order.order_number, allow_promotion_codes: true, line_items: lineItems, metadata: { order_number: order.order_number, customer_email: order.email }, success_url: `${origin}/?payment=success&order=${encodeURIComponent(order.order_number)}&session_id={CHECKOUT_SESSION_ID}`, cancel_url: `${origin}/?payment=cancelled&order=${encodeURIComponent(order.order_number)}` });
       await pool.query('UPDATE hb_orders SET stripe_session_id = ? WHERE id = ?', [session.id, order.id]);

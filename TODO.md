@@ -19,3 +19,8 @@
 - Un compte créé affiche une proposition d’offre de bienvenue sans inventer de montant ni de code promotionnel.
 - La newsletter possède un formulaire public et une inscription depuis l’espace client avec consentement explicite non précoché.
 - Les inscriptions newsletter et les consentements sont persistés avec e-mail, statut, date et source ; une inscription sans consentement est refusée.
+
+- La démonstration affiche clairement son statut TEST et n’utilise pas de données présentées comme réelles.
+- Le code promotionnel de test HAMMEYTEST10 applique 10 % à partir de 30 € et le montant transmis au paiement est recalculé.
+- L’espace client affiche l’historique des commandes liées au compte authentifié.
+- La désinscription newsletter est disponible par adresse e-mail.
