@@ -1,0 +1,76 @@
+<header class="site-header">
+  <a class="brand" href="/">HAMMEY <span>BIJOUX</span></a>
+  <nav aria-label="Navigation principale">
+    <a href="#collection">Collection</a>
+    <a href="/api/auth/login">Compte</a>
+    <span class="cart-pill">Panier {{ cartCount() }} · {{ formatPrice(cartTotal()) }}</span>
+  </nav>
+</header>
+
+<main>
+  <section class="hero">
+    <div>
+      <span class="test-badge">Démo test · données fictives</span>
+      <p class="eyebrow">Bijoux sculptés · acier inoxydable doré</p>
+      <h1>Le luxe n'a pas besoin d'être discret.</h1>
+      <p class="hero-copy">Des pièces fortes, dorées et pensées pour celles qui ne passent pas inaperçues.</p>
+      <a class="button" href="#collection">Découvrir la collection</a>
+    </div>
+    <div class="hero-mark" aria-hidden="true">H</div>
+  </section>
+
+  <section id="collection" class="collection">
+    <div class="section-heading">
+      <div><p class="eyebrow">La sélection Hammey</p><h2>La collection</h2></div>
+      <label class="search">Rechercher <input type="search" [value]="query()" (input)="query.set($any($event.target).value)" placeholder="Un bijou, une forme…" /></label>
+    </div>
+
+    <div class="filters" role="group" aria-label="Filtrer par catégorie">
+      @for (item of categories(); track item) {
+        <button [class.active]="category() === item" [attr.aria-pressed]="category() === item" (click)="selectCategory(item)">{{ item }}</button>
+      }
+    </div>
+
+    @if (loading()) { <p class="state">Chargement de la collection…</p> }
+    @if (error()) { <p class="state error">{{ error() }}</p> }
+    @if (!loading() && !error() && !filteredProducts().length) { <p class="state">Aucun bijou ne correspond à votre recherche.</p> }
+
+    <div class="product-grid">
+      @for (product of filteredProducts(); track product.id) {
+        <article class="product-card" (click)="openProduct(product)" tabindex="0" (keydown.enter)="openProduct(product)">
+          <div class="product-visual"><span>{{ product.category.slice(0, 1) }}</span></div>
+          <div class="product-meta"><div><h3>{{ product.name }}</h3><p>{{ product.description }}</p></div><strong>{{ formatPrice(product.price) }}</strong></div>
+          <button class="text-button" (click)="$event.stopPropagation(); addToCart(product)">Ajouter au panier</button>
+        </article>
+      }
+    </div>
+  </section>
+
+  @if (selectedProduct(); as product) {
+    <div class="modal-backdrop" (click)="closeProduct()">
+      <section class="modal" role="dialog" aria-modal="true" [attr.aria-label]="product.name" (click)="$event.stopPropagation()">
+        <button class="close" aria-label="Fermer" (click)="closeProduct()">×</button>
+        <p class="eyebrow">{{ product.category }}</p><h2>{{ product.name }}</h2><p>{{ product.description }}</p>
+        <strong class="modal-price">{{ formatPrice(product.price) }}</strong>
+        <label class="option-label">{{ product.optionLabel }}
+          <select [value]="selectedOption()" (change)="selectedOption.set($any($event.target).value)">
+            @for (option of product.options; track option) { <option [value]="option">{{ option }} · {{ product.stock[option] }} en stock test</option> }
+          </select>
+        </label>
+        <button class="button" (click)="addToCart(product, selectedOption()); closeProduct()">Ajouter au panier</button>
+      </section>
+    </div>
+  }
+
+  @if (cart().length) {
+    <aside class="cart-panel" aria-label="Panier">
+      <div class="cart-title"><h2>Votre panier</h2><strong>{{ formatPrice(cartTotal()) }}</strong></div>
+      @for (line of cart(); track line.product.id + '-' + line.option) {
+        <div class="cart-line"><span>{{ line.product.name }} · {{ line.option }}</span><span><button (click)="changeQuantity(line, -1)">−</button> {{ line.quantity }} <button (click)="changeQuantity(line, 1)">+</button></span></div>
+      }
+      <a class="button full" href="/#/checkout">Passer la commande</a>
+    </aside>
+  }
+</main>
+
+<footer><span>© 2026 Hammey Bijoux · Front-end Angular · Démonstration test</span><a href="mailto:contact@hammey-bijoux.fr">Contact</a></footer>
