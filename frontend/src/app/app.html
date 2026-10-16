@@ -1,76 +1,40 @@
 <header class="site-header">
-  <a class="brand" href="/">HAMMEY <span>BIJOUX</span></a>
+  <button class="brand brand-button" (click)="show('home')">HAMMEY <span>BIJOUX</span></button>
   <nav aria-label="Navigation principale">
-    <a href="#collection">Collection</a>
-    <a href="/api/auth/login">Compte</a>
-    <span class="cart-pill">Panier {{ cartCount() }} · {{ formatPrice(cartTotal()) }}</span>
+    <button class="nav-link" (click)="show('home')">Collection</button>
+    <button class="nav-link" (click)="show('account')">Compte</button>
+    <button class="nav-link" (click)="show('newsletter')">Newsletter</button>
+    <button class="cart-pill" (click)="show('checkout')">Panier {{ cartCount() }} · {{ formatPrice(total()) }}</button>
   </nav>
 </header>
 
 <main>
-  <section class="hero">
-    <div>
-      <span class="test-badge">Démo test · données fictives</span>
-      <p class="eyebrow">Bijoux sculptés · acier inoxydable doré</p>
-      <h1>Le luxe n'a pas besoin d'être discret.</h1>
-      <p class="hero-copy">Des pièces fortes, dorées et pensées pour celles qui ne passent pas inaperçues.</p>
-      <a class="button" href="#collection">Découvrir la collection</a>
-    </div>
-    <div class="hero-mark" aria-hidden="true">H</div>
-  </section>
-
-  <section id="collection" class="collection">
-    <div class="section-heading">
-      <div><p class="eyebrow">La sélection Hammey</p><h2>La collection</h2></div>
-      <label class="search">Rechercher <input type="search" [value]="query()" (input)="query.set($any($event.target).value)" placeholder="Un bijou, une forme…" /></label>
-    </div>
-
-    <div class="filters" role="group" aria-label="Filtrer par catégorie">
-      @for (item of categories(); track item) {
-        <button [class.active]="category() === item" [attr.aria-pressed]="category() === item" (click)="selectCategory(item)">{{ item }}</button>
-      }
-    </div>
-
-    @if (loading()) { <p class="state">Chargement de la collection…</p> }
-    @if (error()) { <p class="state error">{{ error() }}</p> }
-    @if (!loading() && !error() && !filteredProducts().length) { <p class="state">Aucun bijou ne correspond à votre recherche.</p> }
-
-    <div class="product-grid">
-      @for (product of filteredProducts(); track product.id) {
-        <article class="product-card" (click)="openProduct(product)" tabindex="0" (keydown.enter)="openProduct(product)">
-          <div class="product-visual"><span>{{ product.category.slice(0, 1) }}</span></div>
-          <div class="product-meta"><div><h3>{{ product.name }}</h3><p>{{ product.description }}</p></div><strong>{{ formatPrice(product.price) }}</strong></div>
-          <button class="text-button" (click)="$event.stopPropagation(); addToCart(product)">Ajouter au panier</button>
-        </article>
-      }
-    </div>
-  </section>
-
-  @if (selectedProduct(); as product) {
-    <div class="modal-backdrop" (click)="closeProduct()">
-      <section class="modal" role="dialog" aria-modal="true" [attr.aria-label]="product.name" (click)="$event.stopPropagation()">
-        <button class="close" aria-label="Fermer" (click)="closeProduct()">×</button>
-        <p class="eyebrow">{{ product.category }}</p><h2>{{ product.name }}</h2><p>{{ product.description }}</p>
-        <strong class="modal-price">{{ formatPrice(product.price) }}</strong>
-        <label class="option-label">{{ product.optionLabel }}
-          <select [value]="selectedOption()" (change)="selectedOption.set($any($event.target).value)">
-            @for (option of product.options; track option) { <option [value]="option">{{ option }} · {{ product.stock[option] }} en stock test</option> }
-          </select>
-        </label>
-        <button class="button" (click)="addToCart(product, selectedOption()); closeProduct()">Ajouter au panier</button>
-      </section>
-    </div>
+  @if (view() === 'home') {
+    <section class="hero"><div><span class="test-badge">Démo test · données fictives</span><p class="eyebrow">Bijoux sculptés · acier inoxydable doré</p><h1>Le luxe n'a pas besoin d'être discret.</h1><p class="hero-copy">Des pièces fortes, dorées et pensées pour celles qui ne passent pas inaperçues.</p><button class="button" (click)="scrollToCollection()">Découvrir la collection</button></div><div class="hero-mark" aria-hidden="true">H</div></section>
+    <section id="collection" class="collection"><div class="section-heading"><div><p class="eyebrow">La sélection Hammey</p><h2>La collection</h2></div><label class="search">Rechercher <input type="search" [value]="query()" (input)="query.set($any($event.target).value)" placeholder="Un bijou, une forme…" /></label></div>
+      <div class="filters" role="group" aria-label="Filtrer par catégorie">@for (item of categories(); track item) {<button [class.active]="category() === item" [attr.aria-pressed]="category() === item" (click)="selectCategory(item)">{{ item }}</button>}</div>
+      @if (loading()) {<p class="state">Chargement de la collection…</p>} @if (error()) {<p class="state error">{{ error() }}</p>} @if (!loading() && !error() && !filteredProducts().length) {<p class="state">Aucun bijou ne correspond à votre recherche.</p>}
+      <div class="product-grid">@for (product of filteredProducts(); track product.id) {<article class="product-card" (click)="openProduct(product)" tabindex="0" (keydown.enter)="openProduct(product)"><div class="product-visual"><span>{{ product.category.slice(0, 1) }}</span></div><div class="product-meta"><div><h3>{{ product.name }}</h3><p>{{ product.description }}</p></div><strong>{{ formatPrice(product.price) }}</strong></div><button class="text-button" (click)="$event.stopPropagation(); addToCart(product)">Ajouter au panier</button></article>}</div>
+    </section>
   }
 
-  @if (cart().length) {
-    <aside class="cart-panel" aria-label="Panier">
-      <div class="cart-title"><h2>Votre panier</h2><strong>{{ formatPrice(cartTotal()) }}</strong></div>
-      @for (line of cart(); track line.product.id + '-' + line.option) {
-        <div class="cart-line"><span>{{ line.product.name }} · {{ line.option }}</span><span><button (click)="changeQuantity(line, -1)">−</button> {{ line.quantity }} <button (click)="changeQuantity(line, 1)">+</button></span></div>
-      }
-      <a class="button full" href="/#/checkout">Passer la commande</a>
-    </aside>
+  @if (view() === 'checkout') {
+    <section class="page-section"><button class="back-button" (click)="show('home')">← Retour à la collection</button><p class="eyebrow">Commande test sécurisée</p><h1>Finaliser la commande</h1>
+      @if (!cart().length) {<p class="state">Votre panier est vide.</p>} @else {<div class="checkout-layout"><form class="checkout-form" (submit)="$event.preventDefault(); submitCheckout()"><h2>Coordonnées</h2><div class="form-grid"><label>Prénom<input required [value]="customer().firstName" (input)="updateCustomer('firstName',$any($event.target).value)"></label><label>Nom<input required [value]="customer().lastName" (input)="updateCustomer('lastName',$any($event.target).value)"></label></div><label>E-mail<input required type="email" [value]="customer().email" (input)="updateCustomer('email',$any($event.target).value)"></label><label>Adresse<input required [value]="customer().address" (input)="updateCustomer('address',$any($event.target).value)"></label><div class="form-grid"><label>Code postal<input required pattern="[0-9]{5}" maxlength="5" [value]="customer().postalCode" (input)="updateCustomer('postalCode',$any($event.target).value)"></label><label>Ville<input required [value]="customer().city" (input)="updateCustomer('city',$any($event.target).value)"></label></div><h2>Livraison</h2><label class="radio"><input type="radio" name="shipping" [checked]="shippingMethod() === 'std'" (change)="shippingMethod.set('std')"> Standard · {{ subtotal() >= 80 ? 'offerte' : '4,90 €' }}</label><label class="radio"><input type="radio" name="shipping" [checked]="shippingMethod() === 'exp'" (change)="shippingMethod.set('exp')"> Express · 9,90 €</label><h2>Offre test</h2><label>Code promotionnel<input placeholder="HAMMEYTEST10" [value]="promoCode()" (input)="promoCode.set($any($event.target).value)"></label><p class="hint">-10 % dès 30 € dans l’environnement de test.</p><h2>Paiement</h2><label class="radio"><input type="radio" name="payment" [checked]="paymentMethod() === 'stripe'" (change)="paymentMethod.set('stripe')"> Carte bancaire avec Stripe Test</label><label class="radio"><input type="radio" name="payment" [checked]="paymentMethod() === 'paypal'" (change)="paymentMethod.set('paypal')"> PayPal Sandbox</label><label class="radio legal"><input required type="checkbox"> J’accepte les conditions générales de vente.</label>@if (checkoutMessage()) {<p class="error">{{ checkoutMessage() }}</p>}<button class="button" type="submit">Payer {{ formatPrice(total()) }}</button></form><aside class="summary"><h2>Votre commande</h2>@for (line of cart(); track line.product.id + line.option) {<div class="summary-line"><span>{{ line.product.name }} · {{ line.option }} × {{ line.quantity }}</span><strong>{{ formatPrice(line.product.price * line.quantity) }}</strong></div>}<div class="summary-line"><span>Sous-total</span><strong>{{ formatPrice(subtotal()) }}</strong></div><div class="summary-line"><span>Livraison</span><strong>{{ shipping() ? formatPrice(shipping()) : 'Offerte' }}</strong></div>@if (discount()) {<div class="summary-line"><span>Offre test</span><strong>-{{ formatPrice(discount()) }}</strong></div>}<div class="summary-total"><span>Total</span><strong>{{ formatPrice(total()) }}</strong></div></aside></div>}
+    </section>
   }
+
+  @if (view() === 'account') {
+    <section class="page-section"><button class="back-button" (click)="show('home')">← Retour</button><span class="test-badge">Compte de test</span><h1>Mon compte</h1>@if (!account()) {<p>Connectez-vous pour consulter vos commandes et préférences.</p><a class="button" href="/api/auth/login">Créer un compte / Se connecter</a>} @else {<p>Bonjour {{ account()?.name }} · {{ account()?.email }}</p><h2>Mes commandes</h2>@if (accountLoading()) {<p class="state">Chargement…</p>} @else if (!orders().length) {<p class="state">Aucune commande associée à ce compte.</p>} @else {@for (order of orders(); track order.orderNumber) {<div class="order-row"><span><strong>{{ order.orderNumber }}</strong><small>{{ order.createdAt | date:'dd/MM/yyyy' }} · {{ order.fulfillmentStatus }}</small></span><strong>{{ formatPrice(order.totalCents / 100) }}</strong></div>}}@if (accountMessage()) {<p class="error">{{ accountMessage() }}</p>}<a class="text-button" href="/api/auth/logout">Se déconnecter</a>}</section>
+  }
+
+  @if (view() === 'newsletter') {
+    <section class="page-section narrow"><button class="back-button" (click)="show('home')">← Retour</button><p class="eyebrow">Les nouvelles de Hammey</p><h1>Newsletter</h1><p>Recevez les nouveautés et les offres de démonstration. Vous pouvez vous désinscrire à tout moment.</p><label>E-mail<input type="email" required [value]="newsletterEmail()" (input)="newsletterEmail.set($any($event.target).value)" placeholder="vous@exemple.fr"></label><label class="radio"><input type="checkbox" [checked]="newsletterConsent()" (change)="newsletterConsent.set($any($event.target).checked)"> J’accepte de recevoir les nouveautés et offres Hammey.</label><div class="button-row"><button class="button" [disabled]="!newsletterConsent()" (click)="subscribeNewsletter()">S’inscrire</button><button class="secondary-button" (click)="unsubscribeNewsletter()">Se désinscrire</button></div>@if (newsletterMessage()) {<p class="success">{{ newsletterMessage() }}</p>}</section>
+  }
+
+  @if (view() === 'confirmation') {<section class="page-section narrow confirmation"><span class="test-badge">Paiement de test</span><h1>Merci pour votre commande</h1><p>Votre commande <strong>{{ orderNumber() }}</strong> a été enregistrée. La confirmation définitive dépend du prestataire de paiement test.</p><button class="button" (click)="show('home')">Retour à la collection</button></section>}
+
+  @if (selectedProduct(); as product) {<div class="modal-backdrop" (click)="closeProduct()"><section class="modal" role="dialog" aria-modal="true" [attr.aria-label]="product.name" (click)="$event.stopPropagation()"><button class="close" aria-label="Fermer" (click)="closeProduct()">×</button><p class="eyebrow">{{ product.category }}</p><h2>{{ product.name }}</h2><p>{{ product.description }}</p><strong class="modal-price">{{ formatPrice(product.price) }}</strong><label class="option-label">{{ product.optionLabel }}<select [value]="selectedOption()" (change)="selectedOption.set($any($event.target).value)">@for (option of product.options; track option) {<option [value]="option">{{ option }} · {{ product.stock[option] }} en stock test</option>}</select></label><button class="button" (click)="addToCart(product, selectedOption()); closeProduct()">Ajouter au panier</button></section></div>}
+  @if (cart().length && view() === 'home') {<aside class="cart-panel" aria-label="Panier"><div class="cart-title"><h2>Votre panier</h2><strong>{{ formatPrice(total()) }}</strong></div>@for (line of cart(); track line.product.id + '-' + line.option) {<div class="cart-line"><span>{{ line.product.name }} · {{ line.option }}</span><span><button (click)="changeQuantity(line,-1)">−</button> {{ line.quantity }} <button (click)="changeQuantity(line,1)">+</button></span></div>}<button class="button full" (click)="show('checkout')">Passer la commande</button></aside>}
 </main>
-
-<footer><span>© 2026 Hammey Bijoux · Front-end Angular · Démonstration test</span><a href="mailto:contact@hammey-bijoux.fr">Contact</a></footer>
+<footer><span>© 2026 Hammey Bijoux · Front-end Angular · Démonstration test</span><button class="footer-link" (click)="show('newsletter')">Newsletter</button></footer>
