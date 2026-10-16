@@ -10,6 +10,7 @@ const { PRODUCTS, publicProduct } = require('./products');
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
 const ROOT = __dirname;
+const ANGULAR_DIST = path.join(ROOT, 'frontend', 'dist', 'frontend', 'browser');
 const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
 const pool = process.env.DATABASE_URL ? mysql.createPool({ uri: process.env.DATABASE_URL, connectionLimit: 5, waitForConnections: true }) : null;
 let dbReady = false;
@@ -358,8 +359,9 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
 });
 
 app.post('/api/contact', (req, res) => { const { email, message } = req.body || {}; if (!email || !message) return bad(res, 'E-mail et message obligatoires'); res.status(202).json({ accepted: true, message: 'Message reçu. La messagerie sera reliée à l’e-mail professionnel lors de la prochaine étape.' }); });
-app.use(express.static(ROOT, { index: 'index.html' }));
-app.use((req, res) => res.sendFile(path.join(ROOT, 'index.html')));
+const angularIndex = path.join(ANGULAR_DIST, 'index.html');
+app.use(express.static(fs.existsSync(angularIndex) ? ANGULAR_DIST : ROOT, { index: 'index.html' }));
+app.use((req, res) => res.sendFile(fs.existsSync(angularIndex) ? angularIndex : path.join(ROOT, 'index.html')));
 
 app.listen(PORT, '0.0.0.0', () => {
   ensureDatabase().catch(error => console.error('[database]', error.message));

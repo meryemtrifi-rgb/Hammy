@@ -24,3 +24,7 @@
 - Le code promotionnel de test HAMMEYTEST10 applique 10 % à partir de 30 € et le montant transmis au paiement est recalculé.
 - L’espace client affiche l’historique des commandes liées au compte authentifié.
 - La désinscription newsletter est disponible par adresse e-mail.
+- Le front Angular porte aussi le checkout avec coordonnées, livraison standard/express, code promo test, Stripe Test/PayPal Sandbox et récapitulatif.
+- Le front Angular porte l’espace compte avec connexion OAuth, historique des commandes et déconnexion.
+- Le front Angular porte la newsletter avec consentement obligatoire et désinscription.
+- Le front Angular porte la confirmation de commande de test.
